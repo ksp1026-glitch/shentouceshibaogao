@@ -32,6 +32,9 @@ jobs:
 
       - name: Build site
         run: mkdocs build --strict
+        env:
+          # 关闭 MkDocs 2.0 不兼容提示，保持 CI 日志干净
+          NO_MKDOCS_2_WARNING: "1"
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
