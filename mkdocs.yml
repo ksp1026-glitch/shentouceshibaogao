@@ -1,0 +1,98 @@
+site_name: 渗透测试学习记录
+site_description: 渗透测试与 Web 安全学习记录 · 广东工业大学网络空间安全
+site_author: ksp1026
+site_url: https://ksp1026-glitch.github.io/shentouceshibaogao/
+
+repo_name: ksp1026-glitch/shentouceshibaogao
+repo_url: https://github.com/ksp1026-glitch/shentouceshibaogao
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.top
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: 切换到深色模式
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: 切换到浅色模式
+  font:
+    text: Noto Sans SC
+    code: JetBrains Mono
+
+nav:
+  - 首页: index.md
+  - Web 安全:
+      - web/index.md
+      - SQL 注入:
+          - DVWA 入门: web/sql-injection-dvwa.md
+      - XSS:
+          - web/xss-placeholder.md
+  - CTF Writeup:
+      - ctf/index.md
+  - 渗透测试报告:
+      - reports/index.md
+  - 工具与环境:
+      - tools/index.md
+      - Burp Suite 配置: tools/burp-setup.md
+  - 学习计划: plan.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - footnotes
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+plugins:
+  - search:
+      lang: zh
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/ksp1026-glitch
+      name: GitHub
+
+copyright: 仅供安全学习与防御研究 · 未经授权不得用于攻击真实系统
