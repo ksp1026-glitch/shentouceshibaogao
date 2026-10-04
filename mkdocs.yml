@@ -48,7 +48,7 @@ nav:
       - CSRF:
           - DVWA 入门: web/csrf-dvwa.md
       - XSS:
-          - web/xss-placeholder.md
+          - DOM 型 (DVWA): web/xss-dom-dvwa.md
   - CTF Writeup:
       - ctf/index.md
   - 渗透测试报告:

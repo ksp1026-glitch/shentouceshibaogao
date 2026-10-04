@@ -12,7 +12,8 @@ Web 漏洞是我这个阶段的重点方向——入门最快、靶场最多、�
 |---|---|---|---|
 | SQL 注入 | DVWA / Pikachu | [DVWA Low](sql-injection-dvwa.md) | ✅ |
 | CSRF | DVWA | [DVWA Low](csrf-dvwa.md) | ✅ |
-| XSS | DVWA / Pikachu | — | ⬜ |
+| XSS (DOM 型) | DVWA | [DVWA Low](xss-dom-dvwa.md) | ✅ |
+| XSS (反射型 / 存储型) | DVWA / Pikachu | — | ⬜ |
 | 文件上传 | upload-labs | — | ⬜ |
 | 文件包含 | DVWA / Pikachu | — | ⬜ |
 | 命令注入 | DVWA | — | ⬜ |
