@@ -35,7 +35,7 @@
 | [Web 安全](web/index.md) | SQL 注入、XSS、文件上传、SSRF、XXE 等主流 Web 漏洞 |
 | [CTF Writeup](ctf/index.md) | Web / Misc 方向题解 |
 | [渗透测试报告](reports/index.md) | 完整打靶流程：信息收集 → 利用 → 提权 → 报告 |
-| [工具与环境](tools/index.md) | Kali、Burp Suite、Docker 靶场搭建 |
+| [工具与环境](tools/index.md) | XAMPP、Burp Suite、靶场搭建与维护 |
 | [学习计划](plan.md) | 本学期的学习进度表 |
 
 ---
@@ -44,7 +44,7 @@
 
 本记录中所有测试**仅针对**：
 
-- 自己用 Docker / VMware 搭建的本地靶场
+- 自己在本地搭建的靶场（XAMPP + DVWA）
 - PortSwigger Web Security Academy 等官方练习平台
 - CTF 比赛题目
 - 补天、漏洞盒子等**明确授权**的漏洞平台
