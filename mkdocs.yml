@@ -45,6 +45,8 @@ nav:
       - web/index.md
       - SQL 注入:
           - DVWA 入门: web/sql-injection-dvwa.md
+      - CSRF:
+          - DVWA 入门: web/csrf-dvwa.md
       - XSS:
           - web/xss-placeholder.md
   - CTF Writeup:
