@@ -117,84 +117,91 @@ default=English'"<>test
 
 ### 第 3 步：构造 payload
 
-因为值被拼进 `<option>` 标签内部，**直接插 `<script>` 可能被 HTML 解析器吞掉**
-（`<select>` 内部对标签嵌套有严格限制）。
-
-所以需要**先闭合原标签结构**：
+**实测有效的 payload**（在浏览器地址栏直接输入即可）：
 
 ```
-English</option></select><script>alert(1)</script>
+http://localhost/dvwa/vulnerabilities/xss_d/?default=English%3Cscript%3Ealert(1)%3C/script%3E
 ```
 
-拼接后的 HTML 变成：
-
-```html
-<option value='English</option></select><script>alert(1)</script>'>English...</option>
-```
-
-`</option></select>` 先把原来的结构闭合，`<script>` 就落在了一个可以被解析的位置。
-
-### 第 4 步：绕过浏览器自动编码
-
-**这里是这个模块最容易卡住的地方。**
-
-直接把 payload 粘进浏览器地址栏，浏览器会**自动 URL 编码**，
-而且用户手动输入的 `<` `>` 在多数浏览器里会被编码成 `%3C` `%3E`，
-导致 payload 到达 JS 时已经不是原始形态。
-
-**两个可靠方案：**
-
-**方案 A：Burp Suite Repeater（推荐）**
-
-抓到请求后右键 → **Send to Repeater**，把请求行改成：
-
-```http
-GET /dvwa/vulnerabilities/xss_d/?default=English</option></select><script>alert(1)</script> HTTP/1.1
-```
-
-点 **Send**，payload 原样发送，不会被编码。
-
-**方案 B：使用编码后的 URL**
+解码后就是：
 
 ```
-http://localhost/dvwa/vulnerabilities/xss_d/?default=English%3C/option%3E%3C/select%3E%3Cscript%3Ealert(1)%3C/script%3E
+default=English<script>alert(1)</script>
 ```
 
-| 编码 | 字符 |
-|---|---|
-| `%3C` | `<` |
-| `%3E` | `>` |
-| `%2F` | `/` |
+**打开后立即弹窗，目标达成。**
 
-### 第 5 步：备用 payload
+!!! success "实测结果"
+
+    ```
+    URL:  .../xss_d/?default=English%3Cscript%3Ealert(1)%3C/script%3E
+    结果: 页面加载即弹出 alert(1)  ✅
+    ```
+
+    **注意这里比我原先预想的更简单**——payload 里**不需要** `</option></select>` 闭合标签。
+
+    原因：DVWA 的 Low 难度把值同时写入了 `value=` 属性和标签内容两处，
+    而 `document.write()` 输出的整段 HTML 里，`<script>` 落在了**可以被解析执行的位置**。
+
+    我的预期（需要闭合 `<select>` 结构）适用于某些 innerHTML 场景，
+    但这里 `document.write()` 的行为不同。**实测优先于推测。**
+
+!!! tip "为什么浏览器地址栏输入 `%3C` 而不是 `<`"
+
+    如果在地址栏直接敲 `<script>`，部分浏览器会把它当作**非法 URL 字符**处理，
+    或者在你不可见的层面做二次编码，导致 payload 到达 JS 时已经变形。
+
+    **用百分号编码（`%3C`）可以绕开这个问题**——浏览器把它原样传给服务端/JS，
+    由 JS 解码后再写入 DOM，此时 `<script>` 是完整的。
+
+    （另一种更可控的方式是用 Burp Suite Repeater 发送原始请求，见下方。）
+
+### 第 4 步：备用 payload（如果上面的失效）
 
 `<script>` 在某些上下文里不一定执行。按可靠性排序：
 
-| # | Payload | 说明 |
+| # | Payload（原始形式，需 URL 编码） | 说明 |
 |---|---|---|
-| 1 | `English</option></select><img src=x onerror=alert(1)>` | **最可靠**。标签一定能插入，`src=x` 必然加载失败，失败即触发 `onerror` |
-| 2 | `English</option></select><svg onload=alert(1)>` | SVG 事件，同样不依赖 `<script>` 被解析 |
-| 3 | `English</option></select><script>alert(1)</script>` | 最直观，但受解析规则限制 |
-| 4 | `English"><script>alert(1)</script>` | 闭合属性值的方式 |
+| 1 | `English%3Cscript%3Ealert(1)%3C/script%3E` | ✅ **实测有效** |
+| 2 | `English%3Cimg%20src=x%20onerror=alert(1)%3E` | 事件型，不依赖 `<script>` 被解析 |
+| 3 | `English%3C/option%3E%3C/select%3E%3Cscript%3Ealert(1)%3C/script%3E` | 先闭合标签结构 |
+| 4 | `English%22%3E%3Cscript%3Ealert(1)%3C/script%3E` | 闭合属性值 |
 
-!!! tip "为什么优先用事件型 payload"
+**推荐顺序**：先用 #1（最简单，已验证），失效再试 #2（事件型最稳）。
 
-    `<script>` 标签有额外限制：通过 `innerHTML` 或 `document.write()` 动态插入的
-    `<script>` **可能不会执行**（取决于浏览器和插入方式）。
+!!! tip "为什么事件型 payload 更可靠"
 
-    而 `onerror` / `onload` 这类**事件属性**只要标签被真正解析进 DOM，就会触发。
+    `<script>` 标签有额外限制：通过 `innerHTML` 动态插入的 `<script>` **不会执行**
+    （HTML5 规范明确规定了这一点）。
 
-    这也是为什么真实渗透里事件型 payload 更常用。
+    而 `document.write()` 的行为与之不同，所以本例里 #1 能成功。
+    **但如果换成 innerHTML 场景，#1 就会失效，必须用 #2。**
 
-### 第 6 步：验证
+    这也解释了为什么真实渗透里事件型 payload 更常用——**它对不同 sink 的适应性更好**。
 
-payload 生效后：
+### 第 5 步：验证「服务器不知情」
 
-1. 页面加载时弹出 `alert(1)`
-2. F12 → Elements，能看到 payload 已经**变成了真实的 DOM 元素**（不是文本）
-3. F12 → Network，确认**服务器响应里没有 payload**
+这是 DOM 型 XSS 的**决定性证据**，一定要亲手确认一次：
 
-**第 3 点是 DOM 型的决定性证据。**
+1. 打开 **F12 → Network** 标签
+2. 刷新带 payload 的页面
+3. 点击 `xss_d/?default=...` 这个请求
+4. 看 **Response** 标签（服务器返回的原始 HTML）
+
+**结果：响应正文里找不到 `<script>alert(1)</script>`。**
+
+payload 是在浏览器拿到响应**之后**，由 JS 读取 URL 再写入 DOM 的。
+
+**对比实验**：同样的 payload 打到 **XSS (Reflected)** 模块，它的响应里**会**包含 payload。
+这个差异就是「后端过滤对 DOM 型无效」的实证。
+
+!!! tip "顺便看一眼 DOM"
+
+    F12 → Elements，搜索你的 payload。它应该已经变成**真实的 `<script>` 元素**，
+    而不是一段被转义的文本（`&lt;script&gt;`）。
+
+    顺便能看到 `document.write()` 生成的 `<option value='English<script>...'` 结构，
+    可以直接理解拼接是怎么发生的。
 
 ---
 
@@ -215,6 +222,20 @@ payload 生效后：
 | 后端过滤有效？ | ✅ 有效 | ❌ **无效** |
 | 防护位置 | 服务端输出编码 | **客户端安全 API** |
 | 怎么发现 | 看响应内容 | **审计 JS 代码里的 source → sink 链路** |
+
+!!! note "一条实测经验"
+
+    我一开始推测 payload 需要写成 `English</option></select><script>...</script>`
+    （先用 `</option></select>` 闭合原有标签结构）。
+
+    **实测发现完全不需要** —— `English<script>alert(1)</script>` 就够了。
+
+    原因：`document.write()` 的行为和 `innerHTML` 不同。
+    在 `innerHTML` 场景里 `<script>` 不会执行，需要额外技巧；
+    而 `document.write()` 输出的内容会被正常解析执行。
+
+    **结论：漏洞利用方式高度依赖具体的 sink 和上下文，
+    凭经验推测容易出错，必须实测验证。** 这也是渗透测试里"动手"比"背 payload"重要的原因。
 
 ---
 
