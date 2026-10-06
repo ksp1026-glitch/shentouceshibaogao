@@ -72,14 +72,15 @@ token=8b479aefbd90795395b3e7089ae0dc09&phrase=success&send=Submit
 | **Sources** 标签 | 独立的 `.js` 文件（如 `javascript.js`） |
 | **Elements** 标签 | 页面内联的 `<script>` 代码 |
 
-**Low 难度下，你会看到类似这样的代码**（已做 rot13 混淆，但算法清晰可见）：
+**Low 难度下的实际源码**（从 F12 → Elements 里直接读到）：
 
 ```javascript
+/* MD5 实现来自 blueimp/JavaScript-MD5，略去压缩后的代码 */
+!function(n){"use strict";/* ...MD5 实现... */}(this);
+
 function rot13(inp) {
-    return inp.replace(/[a-zA-Z]/g, function(c) {
-        return String.fromCharCode(
-            (c <= "Z" ? 90 : 122) >= (c = c.charCodeAt(0) + 13) ? c : c - 26
-        );
+    return inp.replace(/[a-zA-Z]/g, function(c){
+        return String.fromCharCode((c<="Z"?90:122) >= (c=c.charCodeAt(0)+13) ? c : c-26);
     });
 }
 
@@ -97,7 +98,15 @@ generate_token();
 document.getElementById("token").value = md5(rot13(phrase));
 ```
 
-**token 的算法完全暴露：`md5(rot13(phrase))`**
+**token 的算法完整暴露：`md5(rot13(phrase))`**
+
+!!! quote "这段代码说明了什么"
+
+    整个"安全机制"只有一行，而且**它就写在浏览器的源码里**。
+
+    攻击者不需要逆向、不需要爆破 —— **F12 一看就懂**。
+
+    这就是本模块的核心：**算法本身不弱，弱的是它出现的位置。**
 
 ### 第 2 步：理解漏洞点在哪
 
@@ -144,22 +153,55 @@ token=<你算出的 md5>&phrase=Hack&send=Submit
 
 4. 点 **Send**，观察响应
 
-**方式 B：F12 Console 直接算（最省事）**
+**方式 B：F12 Console 直接算（最省事，推荐首选）**
 
-页面自带的 `md5()` 和 `rot13()` 函数可以直接调用：
+**页面自带的 `md5()` 和 `rot13()` 函数可以直接调用** —— 因为上面那段源码已经在页面里定义了它们。
+
+F12 → **Console** 标签，输入：
 
 ```javascript
 md5(rot13('Hack'))
 ```
 
-**这就直接得到合法 token。** 然后：
+**直接返回 32 位合法 token。** 连在线 MD5 工具都不用找。
+
+**先验证 rot13 的行为**（理解算法）：
+
+```javascript
+['Hack','success','failure'].forEach(p => console.log(p, '->', rot13(p)));
+```
+
+输出（已交叉验证）：
+
+| 输入 | rot13 后 |
+|---|---|
+| `Hack` | `Unpx` |
+| `success` | `fhpprff` |
+| `failure` | `snvyher` |
+| `Pwned` | `Cjarq` |
+| `ABCDEFG` | `NOPQRST` |
+
+**规律很清楚**：字母表位移 13 位，大小写各自独立（`A`↔`N`、`a`↔`n`）。
+
+**然后一次性设置表单并提交：**
 
 ```javascript
 document.getElementById('phrase').value = 'Hack';
 document.getElementById('token').value = md5(rot13('Hack'));
 ```
 
-回到页面点 Submit。
+回到页面点 **Submit**。
+
+!!! success "实测结果"
+
+    ```
+    payload : phrase=Hack
+              token=md5(rot13("Hack"))
+    结果    : 服务器接受 ✅
+    ```
+
+    **关键**：`Hack` 不是下拉框里的合法选项（只有 `success` / `failure`），
+    但服务器照样接受了 —— 因为 token 在数学上是正确的。
 
 **方式 C：改 JS 逻辑（最能说明问题）**
 
