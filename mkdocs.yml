@@ -49,6 +49,8 @@ nav:
           - DVWA 入门: web/csrf-dvwa.md
       - XSS:
           - DOM 型 (DVWA): web/xss-dom-dvwa.md
+      - JavaScript Attacks:
+          - 客户端校验 (DVWA): web/javascript-attacks-dvwa.md
   - CTF Writeup:
       - ctf/index.md
   - 渗透测试报告:
