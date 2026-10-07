@@ -27,40 +27,71 @@ token=8b479aefbd90795395b3e7089ae0dc09&phrase=success&send=Submit
 
 | 参数 | 含义 |
 |---|---|
-| `phrase` | 你想提交的短语（**手动输入**，不是下拉框） |
-| `token` | **由页面上的 JavaScript 计算出来的校验值**（也是输入框） |
+| `phrase` | 你想提交的短语（**页面上唯一可见的输入框**） |
+| `token` | **隐藏字段**，由页面上的 JavaScript 自动计算填入 |
 | `send` | 提交按钮 |
 
 ### 界面长什么样
 
-这个模块是一个**填空式表单**，两个框都要自己填：
+**页面上只有一个输入框**，token 是隐藏字段（源码原文）：
+
+```html
+<p>Submit the word "success" to win.</p>
+<form name="low_js" method="post">
+    <input type="hidden" name="token" value="" id="token" />          <!-- 隐藏，JS 自动填 -->
+    <label for="phrase">Phrase</label>
+    <input type="text" name="phrase" value="ChangeMe" id="phrase" />  <!-- 唯一可见的 -->
+    <input type="submit" id="send" name="send" value="Submit" />
+</form>
+```
+
+渲染出来是这样：
 
 ```
-┌─────────────────────────────────────┐
-│  Phrase:  [ ____________ ]          │
-│  Token:   [ ____________ ]          │
-│           [ Submit ]                │
-└─────────────────────────────────────┘
+Submit the word "success" to win.
+
+Phrase: [ ChangeMe        ]
+        [    Submit      ]
 ```
 
-**正常流程**：你输入 Phrase，页面上的 JS 自动帮你算出 Token 填进去，你不需要知道算法。
+!!! warning "注意默认值 `ChangeMe`"
 
-**关键提问**：如果 Token 是页面自动算的，那攻击者怎么绕过？
+    输入框的默认值是 `ChangeMe`，**不是空的**。
+
+    页面加载时 `generate_token()` 会立即执行一次，所以初始 token 是
+    `md5(rot13("ChangeMe"))` = `8b479aefbd90795395b3e7089ae0dc09`。
+
+    **如果只把 Phrase 改成 `success` 而不更新 token，提交必然失败** ——
+    因为 token 还是 `ChangeMe` 的哈希。
+
+    这个细节在实操中很容易卡住（我就在这里卡过一次）。
 
 ### 服务器的校验逻辑
 
 ```php
-if ( $phrase == "success" && $token == md5(rot13($phrase)) ) {
-    // 通过
+if ( $phrase == "success" ) {
+    if ( $token == md5(str_rot13("success")) ) {   // ← 服务端自己算
+        $message = "Well done!";
+    } else {
+        $message = "Invalid token.";
+    }
+} else {
+    $message = "You got the phrase wrong.";
 }
 ```
 
 **两个条件必须同时满足**：
 
 1. `phrase` 必须是 `success`
-2. `token` 必须等于 `md5(rot13(phrase))`
+2. `token` 必须等于 `md5(str_rot13("success"))`
 
-**"通关"就是让服务器接受你的提交。**
+**实测值**（用 Node 与 Python 双实现交叉验证）：
+
+| 计算 | 结果 |
+|---|---|
+| `str_rot13("success")` | `fhpprff` |
+| **期望 token** | **`38581812b435834ebf84ebcc2c6424d6`** |
+| 对照：`md5(rot13("ChangeMe"))` | `8b479aefbd90795395b3e7089ae0dc09` |
 
 ### 核心命题：客户端校验等于没有校验
 
@@ -154,25 +185,33 @@ document.getElementById("token").value = md5(rot13(phrase));
 
 ### 第 3 步：先通过 —— 把答案填出来
 
-**因为服务器要的就是 `success`，所以第一步是正常通关。**
+**服务器要的就是 `success` 这个词，所以第一步是正常通关。**
 
-| 框 | 填什么 |
+**你只需要填一个框：**
+
+| 位置 | 填什么 |
 |---|---|
-| **Phrase** | `success` |
-| **Token** | `md5(rot13('success'))` 算出的 32 位字符串 |
+| **Phrase**（可见输入框） | `success` |
+| Token（隐藏字段） | **不用管**，页面 JS 会填 |
 
-**Token 怎么来（两种方式）：**
+**但有个坑**：输入框默认值是 `ChangeMe`，页面加载时已经算过一次 token。
 
-**① 让页面自动算**（正常用户的方式）
+**如果你只改 Phrase 而不更新 token，会得到 `Invalid token.`**
 
-输入 `Phrase` 后，页面上的 `generate_token()` 会自动填充 Token 框。
-**如果没自动填**，就在 Console 里手动调一次：
+**解决办法 —— 在 Console 里手动触发一次重新计算：**
 
 ```javascript
-document.getElementById('token').value = md5(rot13('success'));
+document.getElementById('phrase').value = 'success';
+document.getElementById('token').value  = md5(rot13('success'));
 ```
 
-**② 自己算**（攻击者的方式 —— 这就是漏洞）
+**然后点 Submit → `Well done!`**
+
+**① 更简单的办法**：直接在页面上输入 `success`，然后**点一下页面其他地方**（触发 blur 事件），有些难度下会自动更新 token。
+
+**② 最保险的办法**：用上面那两行 Console 代码手动设置。
+
+**Token 是攻击者可以自己算的 —— 这就是漏洞所在。**
 
 F12 → **Console**：
 
@@ -215,23 +254,84 @@ md5(rot13('success'))
 **所以：如果这个机制被用来保护真实业务**（比如"验证用户是否有权限提交这个金额"），
 **攻击者就能伪造任意合法请求。**
 
-### 第 5 步：用 Burp 演示"完全绕过页面"
+### 第 5 步：用 Burp 演示"完全绕过页面"（实测通过）
 
-这是最能说明问题的一步 —— **证明不需要浏览器、不需要 JS**：
+**这是本模块最有说服力的一步** —— 证明不依赖页面的 JavaScript，也能让服务器接受。
+
+#### 抓一个真实请求
+
+用 Burp 代理浏览器（推荐用 Burp 内置浏览器，开箱即用），在页面上点一次 Submit，拦到的原始请求是：
 
 ```http
 POST /dvwa/vulnerabilities/javascript/ HTTP/1.1
 Host: localhost
 Content-Type: application/x-www-form-urlencoded
-Cookie: security=low; PHPSESSID=你的session
+Cookie: security=low; PHPSESSID=<浏览器真实session>
 
-token=<你自己算的md5>&phrase=success&send=Submit
+token=8b479aefbd90795395b3e7089ae0dc09&phrase=success&send=Submit
 ```
 
-**关键**：这个请求是手工构造的，**页面上的 JS 一行都没跑**。
+**注意这里的 token 是 `8b479aef...`** —— 它不是 `success` 的哈希，而是**默认值 `ChangeMe` 的哈希**：
 
-**服务器照样接受** —— 因为它只比对 token 和 phrase 是否匹配，
-**从不检查这个 token 是不是它的页面算的。**
+```
+md5(rot13("ChangeMe")) = 8b479aefbd90795395b3e7089ae0dc09
+```
+
+**原因**：页面加载时 `generate_token()` 用默认值 `ChangeMe` 算了一次。
+之后把 Phrase 改成 `success` 时，**如果没触发重新计算，token 就还是旧的**。
+
+**所以这个请求会失败**，服务器返回 `Invalid token.`
+
+#### 替换 token 为攻击者自己算的值
+
+**只改 `token=` 这一个值**，其余全部不动：
+
+```http
+POST /dvwa/vulnerabilities/javascript/ HTTP/1.1
+Host: localhost
+Content-Type: application/x-www-form-urlencoded
+Cookie: security=low; PHPSESSID=<浏览器真实session>
+
+token=38581812b435834ebf84ebcc2c6424d6&phrase=success&send=Submit
+```
+
+**发送 → 服务器返回 `Well done!`**
+
+!!! success "实测结果"
+
+    ```
+    token  = 38581812b435834ebf84ebcc2c6424d6   ← 攻击者自己算的
+    phrase = success
+    响应   = Well done!  ✅
+    ```
+
+#### 为什么这一步是决定性的
+
+**`38581812b435834ebf84ebcc2c6424d6` 这个值，页面的 JavaScript 从来没有计算过。**
+
+它是攻击者在**浏览器之外**独立算出来的，然后手工塞进请求。
+
+**服务器无法区分这两种来源：**
+
+| 来源 | token 值 | 服务器判断 |
+|---|---|---|
+| 页面 JS 计算 | `38581812...` | 通过 |
+| **攻击者自己计算** | `38581812...` | **通过（完全相同）** |
+
+**因为两者数值一样，服务器没有任何依据区分。**
+
+这就是"客户端校验等于没有校验"的实证。
+
+!!! note "一个额外的发现"
+
+    **token 和它保护的数据之间没有任何绑定关系。**
+
+    页面可以给你一个基于 `ChangeMe` 的 token，你随手换成基于 `success` 的另一个，
+    服务器只比对「最终的 token 和 phrase 是否匹配」——
+    它不关心 token 是谁生成的、什么时候生成的。
+
+    **如果这个机制真的想证明"请求来自我的页面"，它至少应该保证
+    "token 是刚刚根据当前 phrase 生成的"。但它做不到 —— 因为它是一个无状态的纯函数。**
 
 ### 第 6 步：其他几种实操方式
 
