@@ -20,20 +20,43 @@
 ### 一次性部署
 
 ```powershell
-# 1. 部署 DVWA 到 Apache 并启用 GD 扩展
+# 部署 DVWA 到 Apache 并启用 GD 扩展
 powershell -ExecutionPolicy Bypass -File .\tools\deploy-to-apache.ps1
 ```
 
-### 每次使用
+### 日常使用（三种方式任选）
 
-1. 打开 **XAMPP Control Panel**
-2. **Apache** 和 **MySQL** 都点 **Start**（都变绿）
-3. 浏览器访问 <http://localhost/dvwa/>
-4. 登录 `admin` / `password`
+**方式 1：桌面快捷方式（最省事）**
 
-### 停止
+| 快捷方式 | 作用 |
+|---|---|
+| **DVWA 靶场** | 启动服务 + 自动打开浏览器 |
+| **DVWA 靶场 (管理员)** | 同上，但自动提权（用于停掉抢占 3306 的其他 MySQL 服务） |
+| **DVWA 靶场 - 关闭** | 停止 Apache 和 MariaDB |
 
-XAMPP Control Panel 里点两行的 **Stop**。
+**方式 2：命令行**
+
+```powershell
+# 启动
+powershell -ExecutionPolicy Bypass -File .\tools\start-lab.ps1
+
+# 停止
+powershell -ExecutionPolicy Bypass -File .\tools\stop-lab.ps1
+```
+
+**方式 3：双击 bat 文件**
+
+```
+tools\DVWA-Start.bat    # 启动
+tools\DVWA-Stop.bat     # 停止
+```
+
+### 访问
+
+```
+http://localhost/dvwa/
+登录：admin / password
+```
 
 ---
 
